@@ -1,0 +1,324 @@
+ GNU nano 8.4                                      /home/ltrinca/qa_server/templates/index.html                                               
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Production Jig - Wireless QA Server</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: #1e1e1e;
+            --text-main: #f3f3f3;
+            --accent-green: #28a745;
+            --accent-green-hover: #218838;
+            --accent-blue: #007bff;
+            --accent-blue-hover: #0056b3;
+            --danger-red: #dc3545;
+            --danger-red-hover: #c82333;
+            --btn-gray: #333;
+            --btn-gray-hover: #444;
+            --term-bg: #0a0a0a;
+            --term-text: #00ff00;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 30px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-weight: 800;
+            letter-spacing: 1px;
+            font-size: 28px;
+            color: #ffffff;
+        }
+
+        .header p {
+            margin: 5px 0 0 0;
+            color: #888;
+            font-size: 14px;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 25px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        .video-container {
+            background-color: var(--panel-bg);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .video-feed {
+            width: 100%;
+            max-width: 800px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background-color: #000;
+        }
+
+        .controls-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .control-panel {
+            background-color: var(--panel-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .control-panel h3 {
+            margin-top: 0;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+            color: #aaa;
+            text-transform: uppercase;
+            font-size: 13px;
+            letter-spacing: 1px;
+        }
+
+        button {
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 14px;
+            padding: 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            outline: none;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .btn-aim { background-color: var(--accent-blue); }
+        .btn-aim:hover { background-color: var(--accent-blue-hover); box-shadow: 0 0 12px rgba(0, 123, 255, 0.4); }
+
+        .btn-calibrate { background-color: var(--accent-green); }
+        .btn-calibrate:hover { background-color: var(--accent-green-hover); box-shadow: 0 0 12px rgba(40, 167, 69, 0.4); }
+
+        .btn-sweep { background-color: var(--btn-gray); border: 1px solid #555; }
+        .btn-sweep:hover { background-color: var(--btn-gray-hover); border-color: #777;}
+
+        .btn-clear { background-color: var(--danger-red); }
+        .btn-clear:hover { background-color: var(--danger-red-hover); box-shadow: 0 0 12px rgba(220, 53, 69, 0.4); }
+.btn-restart { background-color: #d35400; margin-top: 20px; }
+.btn-restart:hover { background-color: #e67e22; box-shadow: 0 0 12px rgba(230, 126, 34, 0.4); }
+
+        .terminal-container {
+            background-color: var(--panel-bg);
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+
+        .terminal-header {
+            background-color: #252525;
+            padding: 10px 15px;
+            font-size: 12px;
+            font-family: monospace;
+            color: #888;
+            border-bottom: 1px solid #111;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .terminal-header .status {
+            color: var(--accent-green);
+        }
+
+        .terminal-window {
+            background-color: var(--term-bg);
+            color: var(--term-text);
+            padding: 15px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            height: 300px;
+            overflow-y: auto;
+        }
+
+        /* Responsive design for smaller screens */
+        @media (max-width: 950px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            .terminal-window {
+                height: 250px;
+            }
+        }
+    </style>
+</head>
+
+    <div class="header">
+        <h1>Production Jig QA Server</h1>
+        <p>Wireless Optical Routing Diagnostics</p>
+    </div>
+
+    <div class="dashboard">
+        <div class="video-container">
+            <img src="/video_feed" class="video-feed" alt="Live Camera Feed">
+        </div>
+
+        <div class="controls-container">
+
+            <div class="control-panel">
+                <h3>Hardware Controls</h3>
+                <button class="btn-aim" onclick="sendCommand('aiming')">Aiming Mode (50% Power)</button>
+                <button class="btn-calibrate" onclick="sendCommand('calibrate')">Calibrate Jig (All)</button>
+                <button class="btn-sweep" onclick="sendCommand('qa_sweep')">Run Full QA Sweep</button>
+                <button class="btn-clear" onclick="sendCommand('clear')">Clear / Off</button>
+<button class="btn-restart" onclick="restartServer()">Restart System Service</button>
+
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+                    <label for="cvSlider" style="font-size: 12px; color: #aaa; text-transform: uppercase; font-weight: bold;">
+                        CV Light Threshold: <span id="sliderValue" style="color: var(--accent-blue);">180</span>
+                    </label>
+                    <input type="range" id="cvSlider" min="50" max="255" value="180" style="width: 100%; margin-top: 10px; cursor: pointer;">
+                </div>
+            </div>
+
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <span>SYSTEM.LOG</span>
+                    <span class="status">● ONLINE</span>
+                </div>
+                <div class="terminal-window" id="consoleOutput">
+                    > System Boot Successful.<br>
+                    > Hardware connection established.<br>
+                    > Waiting for operator command...
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- BUTTON COMMANDS ---
+        function sendCommand(cmd) {
+            const term = document.getElementById('consoleOutput');
+
+            if (cmd === 'qa_sweep') {
+                term.innerHTML += "<br>> <span style='color:#888;'><i>Executing 112-pin routing sweep... Please wait.</i></span>";
+                term.scrollTop = term.scrollHeight;
+            } else if (cmd === 'calibrate') {
+                term.innerHTML += "<br>> <span style='color:#888;'><i>Running spatial calibration... Please wait.</i></span>";
+                term.scrollTop = term.scrollHeight;
+            }
+
+            fetch('/command/' + cmd)
+                .then(async response => {
+                    if (!response.ok) {
+                        // If Python crashes, grab the exact error text
+                        const text = await response.text();
+                        throw new Error(`HTTP ${response.status} - Python Crash`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    term.innerHTML += "<br>> " + data.message;
+                    term.scrollTop = term.scrollHeight;
+                })
+                .catch(error => {
+                    // Print the RAW error to the screen so we know exactly what failed
+                    term.innerHTML += `<br>> <span style='color:red;'>CRITICAL ERROR: ${error.message}</span>`;
+                    term.scrollTop = term.scrollHeight;
+                });
+        }
+
+        // --- SLIDER LOGIC ---
+        const cvSlider = document.getElementById('cvSlider');
+        const sliderValue = document.getElementById('sliderValue');
+        const term = document.getElementById('consoleOutput');
+
+        // Update the number text instantly as you drag
+        cvSlider.oninput = function() {
+            sliderValue.innerHTML = this.value;
+        }
+
+        // Send the final number to Python when you let go
+        cvSlider.onchange = function() {
+            let val = this.value;
+            fetch('/set_threshold/' + val)
+                .then(response => response.json())
+                .then(data => {
+                    term.innerHTML += "<br>> <span style='color:var(--accent-blue);'>[CONFIG] " + data.message + "</span>";
+                    term.scrollTop = term.scrollHeight;
+                })
+                .catch(error => {
+                    term.innerHTML += "<br>> <span style='color:red;'>ERROR: Failed to update threshold.</span>";
+                    term.scrollTop = term.scrollHeight;
+                });
+        }
+
+// --- SYSTEM RESTART LOGIC ---
+        function restartServer() {
+            // Ask for confirmation so they don't click it accidentally
+            if(!confirm("WARNING: This will reboot the hardware connection.\n\nThe system will be unresponsive for about 5 seconds. Continue?">
+                return;
+            }
+
+            const term = document.getElementById('consoleOutput');
+            term.innerHTML += "<br>> <span style='color:#e67e22;'>[SYSTEM] Initiating backend reboot sequence...</span>";
+            term.scrollTop = term.scrollHeight;
+
+            fetch('/command/restart_server')
+                .then(response => response.json())
+                .then(data => {
+                    term.innerHTML += "<br>> <span style='color:#e67e22;'>[SYSTEM] " + data.message + "</span>";
+                    term.innerHTML += "<br>> <span style='color:#888;'><i>Webpage will automatically refresh in 5 seconds...</i></span>";
+                    term.scrollTop = term.scrollHeight;
+
+                    // Force the webpage to refresh after the Pi has time to boot back up
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 5000);
+                })
+                .catch(error => {
+                    term.innerHTML += "<br>> <span style='color:red;'>ERROR: Connection lost immediately. Refreshing...</span>";
+                    setTimeout(() => { window.location.reload(); }, 3000);
+                });
+        }
+
+    </script>
+</body>
+</html>
+
+

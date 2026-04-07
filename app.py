@@ -194,6 +194,126 @@ class HeadlessQAServer:
         web_log.append(f"Jig Calibrated successfully. Mapped {len(self.dynamic_map)} fibers.")
         return "<br>".join(web_log)
 
+    def run_auto_calibrate_and_sweep(self):
+        self.qa_errors = []
+        self.calibration_warning = ""
+        self.show_calibration_labels = False
+
+        states = [
+            ("Outer Evens", list(range(0, 58, 2))),
+            ("Outer Odds", list(range(1, 58, 2))),
+            ("Inner Evens", list(range(58, 112, 2))),
+            ("Inner Odds", list(range(59, 112, 2)))
+        ]
+
+        merged_image = np.zeros((self.sim_size, self.sim_size, 3), dtype=np.uint8)
+
+        for name, geometric_list in states:
+            self.set_geometric_state(geometric_list)
+            time.sleep(0.3) 
+            frame = self.grab_live_camera()
+            merged_image = cv2.bitwise_or(merged_image, frame)
+
+        self.send_to_arduino("CLEAR")
+
+        gray = cv2.cvtColor(merged_image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.GaussianBlur(gray, (5, 5), 0)
+
+        # --- THE UPGRADED "CENTER-FINDING" IN-MEMORY SWEEP ---
+        # Test every threshold from 240 down to 40 in steps of 5
+        search_space = list(range(240, 39, -5))
+        working_thresholds = []
+        blobs_at_threshold = {}
+
+        for test_thresh in search_space:
+            _, thresh = cv2.threshold(gray, test_thresh, 255, cv2.THRESH_BINARY)
+            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            current_blobs = []
+            for c in contours:
+                if cv2.contourArea(c) > 15:
+                    M = cv2.moments(c)
+                    if M["m00"] != 0:
+                        current_blobs.append((int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])))
+            
+            # Save the results for this threshold
+            blobs_at_threshold[test_thresh] = current_blobs
+            
+            # If it perfectly sees 112 fibers, log it as a working candidate
+            if len(current_blobs) == 112:
+                working_thresholds.append(test_thresh)
+
+        # Evaluate the results to find the safest center point
+        if not working_thresholds:
+            # It failed completely. Find the attempt that got closest to 112 for the error log.
+            best_attempt_thresh = max(blobs_at_threshold.keys(), key=lambda t: len(blobs_at_threshold[t]))
+            raw_blobs = blobs_at_threshold[best_attempt_thresh]
+            self.calibration_warning = f"AUTO-TUNE FAILED: Best was {len(raw_blobs)}/112."
+            return False, f"<span style='color:red;'>Auto-Tuning Failed. Could not find all 112 fibers at any setting. Please check physical alignment and camera focus.</span>", self.binary_threshold
+
+        # Success! Calculate the exact middle of the working range
+        safe_max = max(working_thresholds)
+        safe_min = min(working_thresholds)
+        best_threshold = int((safe_max + safe_min) / 2)
+        
+        raw_blobs = blobs_at_threshold[best_threshold] # Grab the specific blobs for the center threshold
+        self.binary_threshold = best_threshold 
+        # ---------------------------------------------------------
+
+        global_cx = sum([b[0] for b in raw_blobs]) / len(raw_blobs)
+        global_cy = sum([b[1] for b in raw_blobs]) / len(raw_blobs)
+        radiuses = [math.sqrt((bx - global_cx)**2 + (by - global_cy)**2) for bx, by in raw_blobs]
+        r_threshold = (max(radiuses) + min(radiuses)) / 2
+
+        outer_blobs = [(bx, by) for (bx, by), r in zip(raw_blobs, radiuses) if r > r_threshold]
+        inner_blobs = [(bx, by) for (bx, by), r in zip(raw_blobs, radiuses) if r <= r_threshold]
+
+        def align_outer_ring(blobs):
+            if len(blobs) < 3: return blobs, 0
+            angles = [math.degrees(math.atan2(by - global_cy, bx - global_cx)) % 360 for bx, by in blobs]
+            sorted_blobs = [b for _, b in sorted(zip(angles, blobs))]
+            sorted_angles = sorted(angles)
+            diffs = []
+            for i in range(len(sorted_angles)):
+                next_i = (i+1) % len(sorted_angles)
+                gap = (sorted_angles[next_i] - sorted_angles[i]) % 360
+                diffs.append((gap, next_i, sorted_angles[next_i]))
+            largest_gap = max(diffs, key=lambda x: x[0])
+            index_zero = largest_gap[1]
+            return sorted_blobs[index_zero:] + sorted_blobs[:index_zero], largest_gap[2]
+
+        def align_inner_ring(blobs, target_angle):
+            if len(blobs) < 3: return blobs
+            angles = [math.degrees(math.atan2(by - global_cy, bx - global_cx)) % 360 for bx, by in blobs]
+            sorted_blobs = [b for _, b in sorted(zip(angles, blobs))]
+            sorted_angles = sorted(angles)
+            diffs = []
+            for i in range(len(sorted_angles)):
+                next_i = (i+1) % len(sorted_angles)
+                gap = (sorted_angles[next_i] - sorted_angles[i]) % 360
+                diffs.append((gap, next_i, sorted_angles[next_i]))
+            diffs.sort(key=lambda x: x[0], reverse=True)
+            top_3 = diffs[:min(3, len(diffs))]
+            def angle_dist(a, target):
+                d = abs(a - target) % 360
+                return 360 - d if d > 180 else d
+            true_gap = min(top_3, key=lambda x: angle_dist(x[2], target_angle))
+            index_zero = true_gap[1]
+            return sorted_blobs[index_zero:] + sorted_blobs[:index_zero]
+
+        self.calibrated_outer_map, master_angle = align_outer_ring(outer_blobs)
+        self.calibrated_inner_map = align_inner_ring(inner_blobs, master_angle)
+        self.dynamic_map = self.calibrated_outer_map + self.calibrated_inner_map
+
+        self.show_calibration_labels = True
+        aiming_list = list(range(0, 58, 2)) + list(range(58, 112, 2))
+        self.set_geometric_state(aiming_list)
+
+        calib_msg = f"Auto-Tuned to Threshold {best_threshold} (Range: {safe_min}-{safe_max}). Mapped 112 fibers."
+        sweep_msg = self.run_sweep()
+        
+        return True, f"<span style='color:cyan;'>{calib_msg}</span><br>{sweep_msg}", best_threshold
+
     def run_sweep(self):
         if not self.dynamic_map:
             return "ERROR: You must CALIBRATE JIG first!"
@@ -201,22 +321,33 @@ class HeadlessQAServer:
         self.qa_errors = []
         detailed_web_logs = [] 
 
-        # We now loop over the CV index (0 to 111) instead of the PCB index
         for cv_index in range(112):
             pcb_index = CV_TO_PCB_MAP[cv_index]
             self.send_to_arduino(f"LED:{pcb_index}")
 
-            frame = self.grab_live_camera()
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray = cv2.GaussianBlur(gray, (5, 5), 0)
-            _, thresh = cv2.threshold(gray, self.binary_threshold, 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-            valid_contours = [c for c in contours if cv2.contourArea(c) > 15]
+            # --- ANTI-LAG OPTIMIZATION ---
+            self.grab_live_camera() # 1. Flush the camera hardware buffer 
+            
+            frame = None
+            valid_contours = []
+            
+            # 2. Smart Wait: Loop until we actually see the light turn on
+            for attempt in range(4):
+                frame = self.grab_live_camera()
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.GaussianBlur(gray, (5, 5), 0)
+                _, thresh = cv2.threshold(gray, self.binary_threshold, 255, cv2.THRESH_BINARY)
+                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                
+                valid_contours = [c for c in contours if cv2.contourArea(c) > 15]
+                
+                # Found the dot! Break the loop instantly to run super fast.
+                if valid_contours:
+                    break 
+            # ------------------------------
 
             if not valid_contours:
                 self.qa_errors.append((cv_index, "DEAD", -1, -1, -1))
-                # Now reports the CV Hole number to the user
                 error_msg = f"<span style='color:red;'>FAIL: CV Hole #{cv_index} is completely dead to the camera.</span>"
                 detailed_web_logs.append(error_msg)
                 continue
@@ -244,7 +375,6 @@ class HeadlessQAServer:
                 else:
                     self.qa_errors.append((cv_index, "UNMAPPED", -1, actual_x, actual_y, closest_hole_index))
 
-                # Sends the clean, unbroken error string to the browser
                 error_msg = f"<span style='color:orange;'>FAIL: CV Hole #{cv_index} is misrouted into hole #{closest_hole_index}.</span>"
                 detailed_web_logs.append(error_msg)
 
@@ -294,6 +424,15 @@ def handle_command(cmd):
     elif cmd == 'qa_sweep':
         msg = qa_engine.run_sweep()
     return jsonify({"message": msg})
+
+@app.route('/command/auto_sweep')
+def auto_sweep():
+    success, html_msg, new_thresh = qa_engine.run_auto_calibrate_and_sweep()
+    return jsonify({
+        "message": html_msg,
+        "new_threshold": new_thresh,
+        "success": success
+    })
 
 @app.route('/set_threshold/<int:val>')
 def set_threshold(val):

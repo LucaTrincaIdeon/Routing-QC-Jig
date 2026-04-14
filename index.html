@@ -124,21 +124,33 @@
             transform: scale(0.98);
         }
 
+        /* NEW: Disabled button styling for the interlock */
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none;
+        }
+
         .btn-aim { background-color: var(--accent-blue); }
-        .btn-aim:hover { background-color: var(--accent-blue-hover); box-shadow: 0 0 12px rgba(0, 123, 255, 0.4); }
+        .btn-aim:hover:not(:disabled) { background-color: var(--accent-blue-hover); box-shadow: 0 0 12px rgba(0, 123, 255, 0.4); }
 
         .btn-calibrate { background-color: var(--accent-green); }
-        .btn-calibrate:hover { background-color: var(--accent-green-hover); box-shadow: 0 0 12px rgba(40, 167, 69, 0.4); }
+        .btn-calibrate:hover:not(:disabled) { background-color: var(--accent-green-hover); box-shadow: 0 0 12px rgba(40, 167, 69, 0.4); }
 
         .btn-sweep { background-color: var(--btn-gray); border: 1px solid #555; }
-        .btn-sweep:hover { background-color: var(--btn-gray-hover); border-color: #777;}
+        .btn-sweep:hover:not(:disabled) { background-color: var(--btn-gray-hover); border-color: #777;}
         
         .btn-auto { background-color: #8e44ad; }
-        .btn-auto:hover { background-color: #9b59b6; box-shadow: 0 0 12px rgba(142, 68, 173, 0.4); }
+        .btn-auto:hover:not(:disabled) { background-color: #9b59b6; box-shadow: 0 0 12px rgba(142, 68, 173, 0.4); }
 
         .btn-clear { background-color: var(--danger-red); }
-        .btn-clear:hover { background-color: var(--danger-red-hover); box-shadow: 0 0 12px rgba(220, 53, 69, 0.4); }
+        .btn-clear:hover:not(:disabled) { background-color: var(--danger-red-hover); box-shadow: 0 0 12px rgba(220, 53, 69, 0.4); }
         
+        /* NEW: Manual Mode Toggle Button */
+        .btn-manual-mode { background-color: #f39c12; color: #111; margin-top: 10px; }
+        .btn-manual-mode:hover { background-color: #f1c40f; box-shadow: 0 0 12px rgba(243, 156, 18, 0.4); }
+        .btn-manual-mode.active { background-color: #111; color: #f39c12; border: 2px solid #f39c12; }
+
         .btn-restart { background-color: #d35400; margin-top: 20px; }
         .btn-restart:hover { background-color: #e67e22; box-shadow: 0 0 12px rgba(230, 126, 34, 0.4); }
 
@@ -178,6 +190,31 @@
             overflow-y: auto;
         }
 
+        .terminal-input-line {
+            background-color: #111;
+            border-top: 1px solid #333;
+            display: flex;
+            padding: 10px 15px;
+            align-items: center;
+        }
+        .terminal-input-line span {
+            color: #f39c12;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+        .terminal-input-line input {
+            background: transparent;
+            border: none;
+            color: #f39c12;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            width: 100%;
+            outline: none;
+        }
+        .terminal-input-line input::placeholder {
+            color: #777;
+        }
+
         @media (max-width: 950px) {
             .dashboard {
                 grid-template-columns: 1fr;
@@ -203,12 +240,14 @@
 
             <div class="control-panel">
                 <h3>Hardware Controls</h3>
-                <button class="btn-aim" onclick="sendCommand('aiming')">Aiming Mode (50% Power)</button>
-                <button class="btn-calibrate" onclick="sendCommand('calibrate')">Calibrate Jig (All)</button>
-                <button class="btn-sweep" onclick="sendCommand('qa_sweep')">Run Full QA Sweep</button>
-                <button class="btn-auto" onclick="sendAutoSweep()">Autonomous Tune & Sweep</button>
+                <button class="btn-aim auto-group" onclick="sendCommand('aiming')">Aiming Mode (50% Power)</button>
+                <button class="btn-calibrate auto-group" onclick="sendCommand('calibrate')">Calibrate Jig (All)</button>
+                <button class="btn-sweep auto-group" onclick="sendCommand('qa_sweep')">Run Full QA Sweep</button>
+                <button class="btn-auto auto-group" onclick="sendAutoSweep()">Autonomous Tune & Sweep</button>
                 <button class="btn-clear" onclick="sendCommand('clear')">Clear / Off</button>
                 
+                <button id="btnManualToggle" class="btn-manual-mode" onclick="toggleManualMode()">Enable Manual Debug Mode</button>
+
                 <button class="btn-restart" onclick="restartServer()">Restart System Service</button>
 
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
@@ -222,12 +261,17 @@
             <div class="terminal-container">
                 <div class="terminal-header">
                     <span>SYSTEM.LOG</span>
-                    <span class="status">● ONLINE</span>
+                    <span id="systemStatus" class="status">● ONLINE (AUTO)</span>
                 </div>
                 <div class="terminal-window" id="consoleOutput">
                     > System Boot Successful.<br>
                     > Hardware connection established.<br>
                     > Waiting for operator command...
+                </div>
+                
+                <div id="manualInputContainer" class="terminal-input-line" style="display: none;">
+                    <span>DEBUG ></span>
+                    <input type="text" id="termInput" placeholder="Type CV Index (0-111) or 'clear' and press Enter..." autocomplete="off">
                 </div>
             </div>
 
@@ -235,6 +279,58 @@
     </div>
 
     <script>
+        // --- MODE TOGGLE LOGIC (INTERLOCK) ---
+        let isManualMode = false;
+
+        function toggleManualMode() {
+            isManualMode = !isManualMode;
+            const toggleBtn = document.getElementById('btnManualToggle');
+            const inputContainer = document.getElementById('manualInputContainer');
+            const autoButtons = document.querySelectorAll('.auto-group');
+            const term = document.getElementById('consoleOutput');
+            const statusLabel = document.getElementById('systemStatus');
+            const termInput = document.getElementById('termInput');
+
+            if (isManualMode) {
+                // ENTERING MANUAL MODE
+                toggleBtn.innerText = "Disable Manual Debug (Return to Auto)";
+                toggleBtn.classList.add('active');
+                inputContainer.style.display = "flex";
+                statusLabel.innerText = "● DEBUG MODE ACTIVE";
+                statusLabel.style.color = "#f39c12";
+
+                // Lock out automation
+                autoButtons.forEach(btn => btn.disabled = true);
+
+                // Clear board for safety
+                fetch('/command/clear');
+
+                term.innerHTML += "<br>> <span style='color:#f39c12;'><b>[INTERLOCK] Entering Manual Debug Mode. Automated routines locked.</b></span>";
+                term.scrollTop = term.scrollHeight;
+                
+                // Auto-focus the typing bar
+                termInput.focus();
+
+            } else {
+                // EXITING MANUAL MODE
+                toggleBtn.innerText = "Enable Manual Debug Mode";
+                toggleBtn.classList.remove('active');
+                inputContainer.style.display = "none";
+                statusLabel.innerText = "● ONLINE (AUTO)";
+                statusLabel.style.color = "var(--accent-green)";
+
+                // Unlock automation
+                autoButtons.forEach(btn => btn.disabled = false);
+
+                // Clear board for safety
+                fetch('/command/clear');
+
+                term.innerHTML += "<br>> <span style='color:var(--accent-green);'><b>[INTERLOCK] Exiting Debug Mode. Automated routines unlocked.</b></span>";
+                term.scrollTop = term.scrollHeight;
+                termInput.value = ""; // clear typing box
+            }
+        }
+
         // --- BUTTON COMMANDS ---
         function sendCommand(cmd) {
             const term = document.getElementById('consoleOutput');
@@ -280,15 +376,12 @@
                     return response.json();
                 })
                 .then(data => {
-                    // Force the UI Slider to physically move to the newly discovered threshold
                     if(data.new_threshold) {
                         const cvSlider = document.getElementById('cvSlider');
                         const sliderValue = document.getElementById('sliderValue');
                         cvSlider.value = data.new_threshold;
                         sliderValue.innerHTML = data.new_threshold;
                     }
-
-                    // Print the results of the sweep
                     term.innerHTML += "<br>> " + data.message;
                     term.scrollTop = term.scrollHeight;
                 })
@@ -297,6 +390,33 @@
                     term.scrollTop = term.scrollHeight;
                 });
         }
+
+        // --- INTERACTIVE TERMINAL INPUT ---
+        document.getElementById('termInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                const val = this.value.trim();
+                if (val !== "") {
+                    this.value = ''; // Clear input box
+                    const term = document.getElementById('consoleOutput');
+                    
+                    // Echo command to screen
+                    term.innerHTML += `<br>> <span style='color:#f39c12;'><i>DEBUG > ${val}</i></span>`;
+                    term.scrollTop = term.scrollHeight;
+
+                    // Send to backend
+                    fetch('/command/manual/' + encodeURIComponent(val))
+                        .then(response => response.json())
+                        .then(data => {
+                            term.innerHTML += "<br>> " + data.message;
+                            term.scrollTop = term.scrollHeight;
+                        })
+                        .catch(error => {
+                            term.innerHTML += `<br>> <span style='color:red;'>ERROR: Failed to send manual command.</span>`;
+                            term.scrollTop = term.scrollHeight;
+                        });
+                }
+            }
+        });
 
         // --- SLIDER LOGIC ---
         const cvSlider = document.getElementById('cvSlider');

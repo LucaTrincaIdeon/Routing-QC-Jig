@@ -12,7 +12,6 @@ app = Flask(__name__)
 
 # ==========================================
 # SINGLE SOURCE OF TRUTH: MAPPING DICTIONARY
-# (Updated from True Spreadsheet Mapping)
 # ==========================================
 CV_TO_PCB_MAP = {
     # --- OUTER RING ---
@@ -219,8 +218,6 @@ class HeadlessQAServer:
         gray = cv2.cvtColor(merged_image, cv2.COLOR_BGR2GRAY)
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
-        # --- THE UPGRADED "CENTER-FINDING" IN-MEMORY SWEEP ---
-        # Test every threshold from 240 down to 40 in steps of 5
         search_space = list(range(240, 39, -5))
         working_thresholds = []
         blobs_at_threshold = {}
@@ -236,29 +233,36 @@ class HeadlessQAServer:
                     if M["m00"] != 0:
                         current_blobs.append((int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])))
             
-            # Save the results for this threshold
             blobs_at_threshold[test_thresh] = current_blobs
             
-            # If it perfectly sees 112 fibers, log it as a working candidate
             if len(current_blobs) == 112:
                 working_thresholds.append(test_thresh)
 
-        # Evaluate the results to find the safest center point
         if not working_thresholds:
-            # It failed completely. Find the attempt that got closest to 112 for the error log.
             best_attempt_thresh = max(blobs_at_threshold.keys(), key=lambda t: len(blobs_at_threshold[t]))
             raw_blobs = blobs_at_threshold[best_attempt_thresh]
+            
+            self.calibrated_outer_map = raw_blobs 
+            self.calibrated_inner_map = [] 
+            self.dynamic_map = raw_blobs
+            self.show_calibration_labels = True
+            
+            aiming_list = list(range(0, 58, 2)) + list(range(58, 112, 2))
+            self.set_geometric_state(aiming_list)
+            
             self.calibration_warning = f"AUTO-TUNE FAILED: Best was {len(raw_blobs)}/112."
-            return False, f"<span style='color:red;'>Auto-Tuning Failed. Could not find all 112 fibers at any setting. Please check physical alignment and camera focus.</span>", self.binary_threshold
+            return False, f"<span style='color:orange;'>Auto-Tuning Failed. Best threshold ({best_attempt_thresh}) found {len(raw_blobs)} fibers. Showing partial map on video feed so you can locate the dead fiber.</span>", best_attempt_thresh
 
-        # Success! Calculate the exact middle of the working range
+        # --- LOWEST THRESHOLD SELECTION ---
+        # Pick the absolute lowest working threshold to prevent dim-fiber false negatives
         safe_max = max(working_thresholds)
         safe_min = min(working_thresholds)
-        best_threshold = int((safe_max + safe_min) / 2)
         
-        raw_blobs = blobs_at_threshold[best_threshold] # Grab the specific blobs for the center threshold
-        self.binary_threshold = best_threshold 
-        # ---------------------------------------------------------
+        best_threshold = safe_min
+        
+        raw_blobs = blobs_at_threshold[best_threshold] 
+        self.binary_threshold = int(best_threshold) 
+        # ------------------------------------------------
 
         global_cx = sum([b[0] for b in raw_blobs]) / len(raw_blobs)
         global_cy = sum([b[1] for b in raw_blobs]) / len(raw_blobs)
@@ -309,10 +313,10 @@ class HeadlessQAServer:
         aiming_list = list(range(0, 58, 2)) + list(range(58, 112, 2))
         self.set_geometric_state(aiming_list)
 
-        calib_msg = f"Auto-Tuned to Threshold {best_threshold} (Range: {safe_min}-{safe_max}). Mapped 112 fibers."
+        calib_msg = f"Auto-Tuned to Lowest Threshold {best_threshold} (Max safe was {safe_max}). Mapped 112 fibers."
         sweep_msg = self.run_sweep()
         
-        return True, f"<span style='color:cyan;'>{calib_msg}</span><br>{sweep_msg}", best_threshold
+        return True, f"<span style='color:cyan;'>{calib_msg}</span><br>{sweep_msg}", int(best_threshold)
 
     def run_sweep(self):
         if not self.dynamic_map:
@@ -325,13 +329,11 @@ class HeadlessQAServer:
             pcb_index = CV_TO_PCB_MAP[cv_index]
             self.send_to_arduino(f"LED:{pcb_index}")
 
-            # --- ANTI-LAG OPTIMIZATION ---
-            self.grab_live_camera() # 1. Flush the camera hardware buffer 
+            self.grab_live_camera() # Flush the camera hardware buffer 
             
             frame = None
             valid_contours = []
             
-            # 2. Smart Wait: Loop until we actually see the light turn on
             for attempt in range(4):
                 frame = self.grab_live_camera()
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -341,10 +343,8 @@ class HeadlessQAServer:
                 
                 valid_contours = [c for c in contours if cv2.contourArea(c) > 15]
                 
-                # Found the dot! Break the loop instantly to run super fast.
                 if valid_contours:
                     break 
-            # ------------------------------
 
             if not valid_contours:
                 self.qa_errors.append((cv_index, "DEAD", -1, -1, -1))
@@ -424,6 +424,22 @@ def handle_command(cmd):
     elif cmd == 'qa_sweep':
         msg = qa_engine.run_sweep()
     return jsonify({"message": msg})
+
+@app.route('/command/manual/<cmd_val>')
+def manual_override(cmd_val):
+    if cmd_val.lower() == 'clear':
+        qa_engine.send_to_arduino("CLEAR")
+        return jsonify({"message": "<span style='color:var(--accent-blue);'>[MANUAL] All LEDs cleared.</span>"})
+    try:
+        cv_index = int(cmd_val)
+        if 0 <= cv_index <= 111:
+            pcb_index = CV_TO_PCB_MAP[cv_index]
+            qa_engine.send_to_arduino(f"LED:{pcb_index}")
+            return jsonify({"message": f"<span style='color:var(--accent-blue);'>[MANUAL] CV Hole #{cv_index} (PCB Board Address: {pcb_index}) powered ON.</span>"})
+        else:
+            return jsonify({"message": "<span style='color:red;'>[ERROR] Index must be between 0 and 111.</span>"})
+    except ValueError:
+        return jsonify({"message": "<span style='color:red;'>[ERROR] Invalid command. Enter a number 0-111 or 'clear'.</span>"})
 
 @app.route('/command/auto_sweep')
 def auto_sweep():

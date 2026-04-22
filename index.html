@@ -124,7 +124,6 @@
             transform: scale(0.98);
         }
 
-        /* NEW: Disabled button styling for the interlock */
         button:disabled {
             opacity: 0.3;
             cursor: not-allowed;
@@ -146,7 +145,6 @@
         .btn-clear { background-color: var(--danger-red); }
         .btn-clear:hover:not(:disabled) { background-color: var(--danger-red-hover); box-shadow: 0 0 12px rgba(220, 53, 69, 0.4); }
         
-        /* NEW: Manual Mode Toggle Button */
         .btn-manual-mode { background-color: #f39c12; color: #111; margin-top: 10px; }
         .btn-manual-mode:hover { background-color: #f1c40f; box-shadow: 0 0 12px rgba(243, 156, 18, 0.4); }
         .btn-manual-mode.active { background-color: #111; color: #f39c12; border: 2px solid #f39c12; }
@@ -271,7 +269,7 @@
                 
                 <div id="manualInputContainer" class="terminal-input-line" style="display: none;">
                     <span>DEBUG ></span>
-                    <input type="text" id="termInput" placeholder="Type CV Index (0-111) or 'clear' and press Enter..." autocomplete="off">
+                    <input type="text" id="termInput" placeholder="Type True Left Index (0-111) or 'clear' and press Enter..." autocomplete="off">
                 </div>
             </div>
 
@@ -298,17 +296,20 @@
                 inputContainer.style.display = "flex";
                 statusLabel.innerText = "● DEBUG MODE ACTIVE";
                 statusLabel.style.color = "#f39c12";
-
-                // Lock out automation
+                
                 autoButtons.forEach(btn => btn.disabled = true);
 
-                // Clear board for safety
-                fetch('/command/clear');
-
-                term.innerHTML += "<br>> <span style='color:#f39c12;'><b>[INTERLOCK] Entering Manual Debug Mode. Automated routines locked.</b></span>";
+                term.innerHTML += "<br>> <span style='color:#f39c12;'><b>[INTERLOCK] Entering Manual Debug Mode. Triggering automatic map calibration...</b></span>";
                 term.scrollTop = term.scrollHeight;
+
+                // Automatically trigger the calibration to draw the numbered circles!
+                fetch('/command/calibrate')
+                    .then(response => response.json())
+                    .then(data => {
+                        term.innerHTML += "<br>> <span style='color:#f39c12;'>[DEBUG MAP] " + data.message + "</span>";
+                        term.scrollTop = term.scrollHeight;
+                    });
                 
-                // Auto-focus the typing bar
                 termInput.focus();
 
             } else {
@@ -318,16 +319,14 @@
                 inputContainer.style.display = "none";
                 statusLabel.innerText = "● ONLINE (AUTO)";
                 statusLabel.style.color = "var(--accent-green)";
-
-                // Unlock automation
+                
                 autoButtons.forEach(btn => btn.disabled = false);
 
-                // Clear board for safety
                 fetch('/command/clear');
 
                 term.innerHTML += "<br>> <span style='color:var(--accent-green);'><b>[INTERLOCK] Exiting Debug Mode. Automated routines unlocked.</b></span>";
                 term.scrollTop = term.scrollHeight;
-                termInput.value = ""; // clear typing box
+                termInput.value = ""; 
             }
         }
 
@@ -396,14 +395,12 @@
             if (e.key === 'Enter') {
                 const val = this.value.trim();
                 if (val !== "") {
-                    this.value = ''; // Clear input box
+                    this.value = ''; 
                     const term = document.getElementById('consoleOutput');
                     
-                    // Echo command to screen
                     term.innerHTML += `<br>> <span style='color:#f39c12;'><i>DEBUG > ${val}</i></span>`;
                     term.scrollTop = term.scrollHeight;
 
-                    // Send to backend
                     fetch('/command/manual/' + encodeURIComponent(val))
                         .then(response => response.json())
                         .then(data => {

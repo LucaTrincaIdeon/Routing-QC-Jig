@@ -47,6 +47,10 @@ LEFT_TO_CV_MAP = {
     110: 57, 111: 111
 }
 
+# The reverse dictionary to instantly translate internal arrays back to your physical Left numbering
+CV_TO_LEFT_MAP = {v: k for k, v in LEFT_TO_CV_MAP.items()}
+
+
 class HeadlessQAServer:
     def __init__(self):
         self.sim_size = 800
@@ -95,11 +99,16 @@ class HeadlessQAServer:
         if self.show_calibration_labels:
             for i, (gx, gy) in enumerate(self.calibrated_outer_map):
                 cv2.circle(frame, (gx, gy), 14, (0, 200, 0), 2)
-                cv2.putText(frame, str(i), (gx - 10, gy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                # Translate internal CV Outer index back to the True Left number using .get() to prevent crashes
+                left_idx = CV_TO_LEFT_MAP.get(i, "?")
+                cv2.putText(frame, str(left_idx), (gx - 10, gy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+            
             for i, (gx, gy) in enumerate(self.calibrated_inner_map):
                 cv2.circle(frame, (gx, gy), 14, (200, 100, 0), 2)
-                label_idx = i + len(self.calibrated_outer_map)
-                cv2.putText(frame, str(label_idx), (gx - 10, gy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                cv_idx = i + len(self.calibrated_outer_map)
+                # Translate internal CV Inner index back to the True Left number
+                left_idx = CV_TO_LEFT_MAP.get(cv_idx, "?")
+                cv2.putText(frame, str(left_idx), (gx - 10, gy + 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
         if self.qa_errors:
             for error in self.qa_errors:
@@ -341,8 +350,11 @@ class HeadlessQAServer:
 
         for cv_index in range(112):
             pcb_index = CV_TO_PCB_MAP[cv_index]
+            
+            # Map back to True Left for user-facing errors
+            left_index = CV_TO_LEFT_MAP[cv_index]
+            
             self.send_to_arduino(f"LED:{pcb_index}")
-
             self.grab_live_camera() # Flush the camera hardware buffer 
             
             frame = None
@@ -362,7 +374,7 @@ class HeadlessQAServer:
 
             if not valid_contours:
                 self.qa_errors.append((cv_index, "DEAD", -1, -1, -1))
-                error_msg = f"<span style='color:red;'>FAIL: CV Hole #{cv_index} is completely dead to the camera.</span>"
+                error_msg = f"<span style='color:red;'>FAIL: True Left Fiber #{left_index} is completely dead to the camera.</span>"
                 detailed_web_logs.append(error_msg)
                 continue
 
@@ -383,13 +395,15 @@ class HeadlessQAServer:
                     closest_hole_index = hole_idx
 
             if closest_hole_index != cv_index:
+                actual_left = CV_TO_LEFT_MAP.get(closest_hole_index, "UNKNOWN")
+                
                 if cv_index < len(self.dynamic_map):
                     expected_x, expected_y = self.dynamic_map[cv_index]
                     self.qa_errors.append((cv_index, expected_x, expected_y, actual_x, actual_y, closest_hole_index))
                 else:
                     self.qa_errors.append((cv_index, "UNMAPPED", -1, actual_x, actual_y, closest_hole_index))
 
-                error_msg = f"<span style='color:orange;'>FAIL: CV Hole #{cv_index} is misrouted into hole #{closest_hole_index}.</span>"
+                error_msg = f"<span style='color:orange;'>FAIL: True Left Fiber #{left_index} is misrouted into hole #{actual_left}.</span>"
                 detailed_web_logs.append(error_msg)
 
         aiming_list = list(range(0, 58, 2)) + list(range(58, 112, 2))
@@ -439,7 +453,6 @@ def handle_command(cmd):
         msg = qa_engine.run_sweep()
     return jsonify({"message": msg})
 
-# --- UPDATED MANUAL OVERRIDE (Now takes Left Index) ---
 @app.route('/command/manual/<cmd_val>')
 def manual_override(cmd_val):
     if cmd_val.lower() == 'clear':
@@ -448,7 +461,6 @@ def manual_override(cmd_val):
     try:
         left_index = int(cmd_val)
         if 0 <= left_index <= 111:
-            # Shield the user from the internal array math: Left -> CV -> PCB
             cv_index = LEFT_TO_CV_MAP[left_index]
             pcb_index = CV_TO_PCB_MAP[cv_index]
             qa_engine.send_to_arduino(f"LED:{pcb_index}")

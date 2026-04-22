@@ -11,8 +11,7 @@ from picamera2 import Picamera2
 app = Flask(__name__)
 
 # ==========================================
-# SINGLE SOURCE OF TRUTH: MAPPING DICTIONARY
-# (Updated with True Hardware Key & Routing)
+# SINGLE SOURCE OF TRUTH: MAPPING DICTIONARIES
 # ==========================================
 CV_TO_PCB_MAP = {
     # --- OUTER RING (CV 0 to 57) ---
@@ -31,6 +30,21 @@ CV_TO_PCB_MAP = {
     85: 67, 86: 68, 87: 69, 88: 70, 89: 71, 90: 72, 91: 73, 92: 74, 93: 75,
     94: 20, 95: 21, 96: 22, 97: 23, 98: 24, 99: 25, 100: 26, 101: 27, 102: 28, 
     103: 29, 104: 30, 105: 31, 106: 32, 107: 33, 108: 34, 109: 35, 110: 36, 111: 37
+}
+
+LEFT_TO_CV_MAP = {
+    0: 0, 1: 58, 2: 1, 3: 59, 4: 2, 5: 60, 6: 3, 7: 61, 8: 4, 9: 62,
+    10: 5, 11: 63, 12: 6, 13: 64, 14: 7, 15: 65, 16: 8, 17: 66, 18: 9, 19: 67,
+    20: 10, 21: 68, 22: 11, 23: 69, 24: 12, 25: 70, 26: 13, 27: 71, 28: 14, 29: 72,
+    30: 15, 31: 73, 32: 16, 33: 74, 34: 17, 35: 75, 36: 18, 37: 19, 38: 20, 39: 76,
+    40: 21, 41: 77, 42: 22, 43: 78, 44: 23, 45: 79, 46: 24, 47: 80, 48: 25, 49: 81,
+    50: 26, 51: 82, 52: 27, 53: 83, 54: 28, 55: 84, 56: 29, 57: 85, 58: 30, 59: 86,
+    60: 31, 61: 87, 62: 32, 63: 88, 64: 33, 65: 89, 66: 34, 67: 90, 68: 35, 69: 91,
+    70: 36, 71: 92, 72: 37, 73: 93, 74: 38, 75: 39, 76: 40, 77: 94, 78: 41, 79: 95,
+    80: 42, 81: 96, 82: 43, 83: 97, 84: 44, 85: 98, 86: 45, 87: 99, 88: 46, 89: 100,
+    90: 47, 91: 101, 92: 48, 93: 102, 94: 49, 95: 103, 96: 50, 97: 104, 98: 51, 99: 105,
+    100: 52, 101: 106, 102: 53, 103: 107, 104: 54, 105: 108, 106: 55, 107: 109, 108: 56, 109: 110,
+    110: 57, 111: 111
 }
 
 class HeadlessQAServer:
@@ -256,7 +270,6 @@ class HeadlessQAServer:
             return False, f"<span style='color:orange;'>Auto-Tuning Failed. Best threshold ({best_attempt_thresh}) found {len(raw_blobs)} fibers. Showing partial map on video feed so you can locate the dead fiber.</span>", best_attempt_thresh
 
         # --- LOWEST THRESHOLD SELECTION ---
-        # Pick the absolute lowest working threshold to prevent dim-fiber false negatives
         safe_max = max(working_thresholds)
         safe_min = min(working_thresholds)
         
@@ -264,7 +277,6 @@ class HeadlessQAServer:
         
         raw_blobs = blobs_at_threshold[best_threshold] 
         self.binary_threshold = int(best_threshold) 
-        # ------------------------------------------------
 
         global_cx = sum([b[0] for b in raw_blobs]) / len(raw_blobs)
         global_cy = sum([b[1] for b in raw_blobs]) / len(raw_blobs)
@@ -427,17 +439,20 @@ def handle_command(cmd):
         msg = qa_engine.run_sweep()
     return jsonify({"message": msg})
 
+# --- UPDATED MANUAL OVERRIDE (Now takes Left Index) ---
 @app.route('/command/manual/<cmd_val>')
 def manual_override(cmd_val):
     if cmd_val.lower() == 'clear':
         qa_engine.send_to_arduino("CLEAR")
         return jsonify({"message": "<span style='color:var(--accent-blue);'>[MANUAL] All LEDs cleared.</span>"})
     try:
-        cv_index = int(cmd_val)
-        if 0 <= cv_index <= 111:
+        left_index = int(cmd_val)
+        if 0 <= left_index <= 111:
+            # Shield the user from the internal array math: Left -> CV -> PCB
+            cv_index = LEFT_TO_CV_MAP[left_index]
             pcb_index = CV_TO_PCB_MAP[cv_index]
             qa_engine.send_to_arduino(f"LED:{pcb_index}")
-            return jsonify({"message": f"<span style='color:var(--accent-blue);'>[MANUAL] CV Hole #{cv_index} (PCB Board Address: {pcb_index}) powered ON.</span>"})
+            return jsonify({"message": f"<span style='color:var(--accent-blue);'>[MANUAL] True Left #{left_index} (CV: {cv_index}, PCB: {pcb_index}) powered ON.</span>"})
         else:
             return jsonify({"message": "<span style='color:red;'>[ERROR] Index must be between 0 and 111.</span>"})
     except ValueError:
